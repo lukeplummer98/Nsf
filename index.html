@@ -1083,21 +1083,48 @@ function drawPitch2D(){
   return g;
 }
 function drawKeeper2D(g,kx,jumpFrac){
-  const cx=g.goalX+g.goalW*((kx+1)/2), kw=g.goalW*0.17, kh=g.goalH*0.92;
-  const jumpOff=(jumpFrac||0)*g.goalH*0.55;
-  // Body
+  const cx=g.goalX+g.goalW*((kx+1)/2);
+  const jump=(jumpFrac||0)*g.goalH*0.6;
+  const baseY=g.goalY+g.goalH-jump; // feet level
+  const pw=Math.max(14, g.goalW*0.13);
+  const ph=Math.max(36, g.goalH*0.90);
+  const diveSign=kx>=0?1:-1;
+  const diveAmt=Math.min(1,Math.abs(kx));
+
+  // Ground shadow
+  ctx.fillStyle='rgba(0,0,0,0.22)';
+  ctx.beginPath(); ctx.ellipse(cx,g.goalY+g.goalH+3,pw*0.95,pw*0.22,0,0,Math.PI*2); ctx.fill();
+
+  // Boots
+  ctx.fillStyle='#111';
+  ctx.fillRect(cx-pw*0.44, baseY-ph*0.06, pw*0.38, ph*0.07);
+  ctx.fillRect(cx+pw*0.06, baseY-ph*0.06, pw*0.38, ph*0.07);
+  // Legs / socks
+  ctx.fillStyle='#e8e8e8';
+  ctx.fillRect(cx-pw*0.38, baseY-ph*0.29, pw*0.30, ph*0.24);
+  ctx.fillRect(cx+pw*0.08, baseY-ph*0.29, pw*0.30, ph*0.24);
+  // Shorts
+  ctx.fillStyle='#1a237e';
+  roundRect(cx-pw*0.50, baseY-ph*0.34, pw, ph*0.10, 3); ctx.fill();
+  // Jersey
   ctx.fillStyle='#ffd23d';
-  roundRect(cx-kw/2, g.goalY+g.goalH-kh-jumpOff, kw, kh, 6); ctx.fill();
-  ctx.fillStyle='rgba(0,0,0,.25)';
-  ctx.fillRect(cx-kw/2, g.goalY+g.goalH-kh-jumpOff, kw, kh*0.28);
-  // Arms extended toward ball side
-  const armLen=kw*0.9, armY=g.goalY+g.goalH-kh*0.72-jumpOff;
-  const leanSign=kx>0?1:-1;
-  ctx.strokeStyle='#ffd23d'; ctx.lineWidth=kw*0.35; ctx.lineCap='round';
-  ctx.beginPath();
-  ctx.moveTo(cx+leanSign*kw*0.5, armY);
-  ctx.lineTo(cx+leanSign*(kw*0.5+armLen), armY-jumpOff*0.4);
-  ctx.stroke();
+  roundRect(cx-pw*0.50, baseY-ph*0.76, pw, ph*0.44, pw*0.18); ctx.fill();
+  // Gloves
+  ctx.fillStyle='#e8ff3a';
+  const spreadFar=pw*(0.52+diveAmt*1.4), spreadNear=pw*(0.52+diveAmt*0.45);
+  const armY=baseY-ph*0.58;
+  ctx.beginPath(); ctx.arc(cx+diveSign*spreadFar, armY+ph*0.02, pw*0.24, 0, Math.PI*2); ctx.fill();
+  ctx.beginPath(); ctx.arc(cx-diveSign*spreadNear, armY-ph*0.02, pw*0.20, 0, Math.PI*2); ctx.fill();
+  // Arms (jersey coloured lines)
+  ctx.strokeStyle='#ffd23d'; ctx.lineWidth=pw*0.28; ctx.lineCap='round';
+  ctx.beginPath(); ctx.moveTo(cx+diveSign*pw*0.5, armY); ctx.lineTo(cx+diveSign*(spreadFar-pw*0.1), armY+ph*0.02); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(cx-diveSign*pw*0.5, armY); ctx.lineTo(cx-diveSign*(spreadNear-pw*0.1), armY-ph*0.02); ctx.stroke();
+  // Head
+  ctx.fillStyle='#f2c08a';
+  ctx.beginPath(); ctx.arc(cx, baseY-ph*0.86, pw*0.36, 0, Math.PI*2); ctx.fill();
+  // Keeper cap
+  ctx.fillStyle='#ffd23d';
+  ctx.beginPath(); ctx.arc(cx, baseY-ph*0.91, pw*0.37, Math.PI+0.2, -0.2); ctx.fill();
 }
 function draw2DAim(){
   const g=drawPitch2D();
@@ -1140,7 +1167,7 @@ function drawTrajectory2D(g,p){
     ctx.restore();
   }
 }
-/* Blockers: draw outfield players on pitch. animU=0 = standing still, animU>0 = running */
+/* Blockers: draw outfield players on pitch. animU=0 = standing, animU>0 = running */
 function drawBlockers2D(g,aimX,animU){
   if(!M||!M.blockers) return;
   const pitchTop=g.goalY+g.goalH;
@@ -1148,20 +1175,58 @@ function drawBlockers2D(g,aimX,animU){
     const nx=animU>0 ? b.x+(aimX-b.x)*Math.min(1,b.speed*animU*1.5) : b.x;
     const bx=g.goalX+g.goalW*((clamp(nx,-1,1)+1)/2);
     const by=pitchTop+(g.ballY-pitchTop)*(1-b.depth);
-    const r=6;
-    // Body
+
+    // Perspective: players farther from camera (smaller depth) appear smaller
+    const sc=0.52+(1-b.depth)*0.55;
+    const pw=Math.max(10, g.goalW*0.09*sc);
+    const ph=Math.max(28, g.goalH*0.78*sc);
+
+    // Running lean (when animating)
+    const lean=animU>0?(aimX-b.x)*0.18:0;
+
+    ctx.save();
+    ctx.translate(bx, by);
+    ctx.rotate(lean);
+
+    // Ground shadow
+    ctx.fillStyle='rgba(0,0,0,0.18)';
+    ctx.beginPath(); ctx.ellipse(0, 3, pw*0.9, pw*0.2, 0, 0, Math.PI*2); ctx.fill();
+
+    // Boots
+    ctx.fillStyle='#111';
+    ctx.fillRect(-pw*0.44, -ph*0.05, pw*0.36, ph*0.06);
+    ctx.fillRect( pw*0.08, -ph*0.05, pw*0.36, ph*0.06);
+    // Socks / shins
+    ctx.fillStyle='#e8e8e8';
+    ctx.fillRect(-pw*0.40, -ph*0.29, pw*0.28, ph*0.25);
+    ctx.fillRect( pw*0.12, -ph*0.29, pw*0.28, ph*0.25);
+    // Shorts
+    ctx.fillStyle='#111';
+    roundRect(-pw*0.50, -ph*0.33, pw, ph*0.09, 2); ctx.fill();
+    // Jersey
     ctx.fillStyle=b.col||'#8A97B2';
-    ctx.beginPath(); ctx.ellipse(bx,by+r,r,r*1.4,0,0,Math.PI*2); ctx.fill();
+    roundRect(-pw*0.50, -ph*0.76, pw, ph*0.45, pw*0.2); ctx.fill();
+    // Number on back (tiny)
+    ctx.fillStyle='rgba(255,255,255,0.55)'; ctx.font=`bold ${Math.max(6,pw*0.45)}px Inter,sans-serif`; ctx.textAlign='center';
+    ctx.fillText('11', 0, -ph*0.44);
+    // Arms
+    ctx.strokeStyle=b.col||'#8A97B2'; ctx.lineWidth=pw*0.26; ctx.lineCap='round';
+    ctx.beginPath(); ctx.moveTo(-pw*0.50, -ph*0.59); ctx.lineTo(-pw*1.10, -ph*0.48); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo( pw*0.50, -ph*0.59); ctx.lineTo( pw*1.10, -ph*0.48); ctx.stroke();
     // Head
-    ctx.fillStyle='#F2C08A';
-    ctx.beginPath(); ctx.arc(bx,by-r*0.8,r*0.85,0,Math.PI*2); ctx.fill();
+    ctx.fillStyle='#f2c08a';
+    ctx.beginPath(); ctx.arc(0, -ph*0.89, pw*0.38, 0, Math.PI*2); ctx.fill();
+
     // Impact ring when blocking
     if(animU>0.82){
-      ctx.save(); ctx.globalAlpha=(animU-0.82)/0.18;
-      ctx.strokeStyle='#fff'; ctx.lineWidth=2;
-      ctx.beginPath(); ctx.arc(bx,by,r*2.6,0,Math.PI*2); ctx.stroke();
+      const a=(animU-0.82)/0.18;
+      ctx.save(); ctx.globalAlpha=a;
+      ctx.strokeStyle='rgba(255,255,255,0.9)'; ctx.lineWidth=pw*0.28;
+      ctx.beginPath(); ctx.arc(0, -ph*0.5, pw*2.0, 0, Math.PI*2); ctx.stroke();
       ctx.restore();
     }
+
+    ctx.restore();
   });
 }
 /* Wind arrows drawn on canvas */
@@ -1230,12 +1295,17 @@ function setup3D(){
       } else { mesh.visible=false; }
     });
   }
-  resetTrail3D(); attachInput($('three'),()=>renderAim3D(),fire3D); onResize3D(); renderAim3D();
+  resetTrail3D(); attachInput($('three'),()=>renderAim3D(),fire3D);
+  onResize3D();
+  // Second resize on next frame in case layout wasn't settled yet
+  requestAnimationFrame(()=>{ onResize3D(); renderAim3D(); });
 }
 function init3D(){
   const host=$('three');
   const renderer=new THREE.WebGLRenderer({antialias:true,powerPreference:'low-power'});
   renderer.setPixelRatio(Math.min(2,window.devicePixelRatio||1)); host.appendChild(renderer.domElement);
+  // Fill container regardless of pixel ratio — without this the canvas overflows on retina
+  renderer.domElement.style.cssText='position:absolute;top:0;left:0;width:100%;height:100%';
   const scene=new THREE.Scene(); scene.background=new THREE.Color('#06140d'); scene.fog=new THREE.Fog('#06140d',20,42);
   const cam=new THREE.PerspectiveCamera(72,1,0.1,100);
   cam.position.set(0,2.4,16.5); cam.lookAt(0,1.4,-2);
@@ -1286,17 +1356,15 @@ function init3D(){
 }
 function onResize3D(){
   if(!three.renderer) return;
-  const host=$('three');
-  const w=host.clientWidth||window.innerWidth, h=host.clientHeight||window.innerHeight;
+  // window.innerWidth/Height is reliable; canvas is CSS-stretched to fill container
+  const w=window.innerWidth, h=window.innerHeight;
   three.renderer.setSize(w,h,false);
   three.cam.aspect=w/h;
   const asp=w/h;
-  // Responsive camera: pull back and widen FOV for portrait mobile
-  if(asp<0.60){       three.cam.fov=80; three.cam.position.set(0,2.2,17.5); }
-  else if(asp<0.80){  three.cam.fov=72; three.cam.position.set(0,2.5,15.5); }
-  else if(asp<1.00){  three.cam.fov=64; three.cam.position.set(0,2.8,14.0); }
-  else {              three.cam.fov=55; three.cam.position.set(0,3.0,12.5); }
-  three.cam.lookAt(0,1.4,-2);
+  if(asp<0.70){      three.cam.fov=70; three.cam.position.set(0,2.8,15.0); }
+  else if(asp<0.90){ three.cam.fov=63; three.cam.position.set(0,3.0,13.5); }
+  else {             three.cam.fov=55; three.cam.position.set(0,3.2,12.5); }
+  three.cam.lookAt(0,1.2,-2);
   three.cam.updateProjectionMatrix();
   three.renderer.render(three.scene,three.cam);
 }
