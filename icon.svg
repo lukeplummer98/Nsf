@@ -1,0 +1,29 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <!-- Background -->
+  <rect width="512" height="512" rx="96" fill="#070B16"/>
+  <!-- Pitch green glow -->
+  <ellipse cx="256" cy="340" rx="200" ry="120" fill="#0d5c28" opacity="0.6"/>
+  <!-- Goal frame -->
+  <rect x="156" y="170" width="200" height="100" rx="0" fill="none" stroke="#ffffff" stroke-width="10" opacity="0.9"/>
+  <!-- Net lines vertical -->
+  <line x1="196" y1="170" x2="196" y2="270" stroke="#ffffff" stroke-width="2" opacity="0.3"/>
+  <line x1="236" y1="170" x2="236" y2="270" stroke="#ffffff" stroke-width="2" opacity="0.3"/>
+  <line x1="276" y1="170" x2="276" y2="270" stroke="#ffffff" stroke-width="2" opacity="0.3"/>
+  <line x1="316" y1="170" x2="316" y2="270" stroke="#ffffff" stroke-width="2" opacity="0.3"/>
+  <!-- Net lines horizontal -->
+  <line x1="156" y1="200" x2="356" y2="200" stroke="#ffffff" stroke-width="2" opacity="0.3"/>
+  <line x1="156" y1="230" x2="356" y2="230" stroke="#ffffff" stroke-width="2" opacity="0.3"/>
+  <!-- Ball with arc trajectory -->
+  <path d="M 256 400 Q 200 280 290 200" fill="none" stroke="#FFC23D" stroke-width="4" stroke-dasharray="8 6" opacity="0.7"/>
+  <!-- Ball -->
+  <circle cx="290" cy="200" r="26" fill="#ffffff"/>
+  <!-- Ball pentagon patches -->
+  <circle cx="290" cy="200" r="9" fill="#111111"/>
+  <circle cx="304" cy="188" r="6" fill="#111111"/>
+  <circle cx="276" cy="188" r="6" fill="#111111"/>
+  <circle cx="308" cy="208" r="5" fill="#111111"/>
+  <circle cx="272" cy="208" r="5" fill="#111111"/>
+  <!-- Star -->
+  <polygon points="256,72 265,100 295,100 272,118 281,146 256,129 231,146 240,118 217,100 247,100"
+    fill="#FFC23D" opacity="0.95"/>
+</svg>
