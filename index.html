@@ -174,10 +174,16 @@
       </div>
       <div class="barbg"><div class="barfill" id="enBar" style="width:100%"></div></div>
       <div class="sp"></div>
-      <div class="row small mute" style="gap:14px">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+        <span class="b small">Reputation</span><span class="small mute" id="repTxt">50</span>
+      </div>
+      <div class="barbg"><div class="barfill" id="repBar" style="width:50%;background:var(--good)"></div></div>
+      <div class="sp"></div>
+      <div class="row small mute" style="gap:14px;align-items:center">
         <span>Power <b class="b" style="color:var(--chalk)" id="skPow">—</b></span>
         <span>Accuracy <b class="b" style="color:var(--chalk)" id="skAcc">—</b></span>
         <span>Curl <b class="b" style="color:var(--chalk)" id="skCur">—</b></span>
+        <span id="banTag" style="display:none;color:var(--bad);font-weight:800"></span>
       </div>
     </div>
 
@@ -205,7 +211,10 @@
       <button class="btn ghost sm" id="shopBtn">Boot shop</button>
     </div>
     <div class="sp"></div>
-    <button class="btn ghost sm" id="statsBtn">Career &amp; achievements</button>
+    <div class="row">
+      <button class="btn ghost sm" id="jeopardyBtn">⚡ Jeopardy</button>
+      <button class="btn ghost sm" id="statsBtn">Career &amp; achievements</button>
+    </div>
   </div></section>
 
   <!-- SHOP -->
@@ -243,6 +252,13 @@
       <div class="led-cell"><div class="k">Seasons</div><div class="v white" id="stSeasons">0</div></div>
       <div class="led-cell"><div class="k">Avg Rat.</div><div class="v" id="stRating">—</div></div>
       <div class="led-cell"><div class="k">Best Pos</div><div class="v white" id="stBestDiv">—</div></div>
+    </div>
+    <div class="sp"></div>
+    <div class="led-strip">
+      <div class="led-cell"><div class="k">Reputation</div><div class="v" id="stRep">50</div></div>
+      <div class="led-cell"><div class="k">🟨 Yellows</div><div class="v white" id="stYel">0</div></div>
+      <div class="led-cell"><div class="k">🟥 Reds</div><div class="v white" id="stRed">0</div></div>
+      <div class="led-cell"><div class="k">⚡ Jeopardy</div><div class="v white" id="stJp">0</div></div>
     </div>
     <div class="sp2"></div>
     <div class="eyebrow" style="color:var(--mute)">Achievements</div>
@@ -313,6 +329,15 @@
     <div class="sp2"></div>
     <div id="rAchievUnlock" style="margin-bottom:12px"></div>
     <button class="btn" onclick="afterResult()">Back to career →</button>
+  </div></section>
+
+  <!-- DECISION / EVENT -->
+  <section id="decision" class="screen"><div class="pad fade" style="display:flex;flex-direction:column;justify-content:center;min-height:100%">
+    <div class="eyebrow" id="decEyebrow">Event</div>
+    <div class="display" id="decTitle" style="font-size:30px;margin:6px 0 12px">—</div>
+    <div class="card"><div id="decBody" class="small" style="line-height:1.55"></div></div>
+    <div class="sp2"></div>
+    <div id="decChoices"></div>
   </div></section>
 
 </div>
@@ -413,6 +438,11 @@ const ACHIEVEMENTS = [
   {id:'top_tier',    icon:'🏆', name:'Premier Class',  desc:'Play in the Premier League'},
   {id:'veteran',     icon:'⭐', name:'Veteran',         desc:'Complete 5 seasons'},
   {id:'title_winner',icon:'🎖', name:'Champions',      desc:'Win a league title'},
+  {id:'high_roller', icon:'🎰', name:'High Roller',    desc:'Win a Jeopardy gamble'},
+  {id:'ironman',     icon:'🦵', name:'Iron Man',       desc:'Ride out a two-footed challenge'},
+  {id:'seeing_red',  icon:'🟥', name:'Seeing Red',     desc:'Get sent off in a match'},
+  {id:'front_page',  icon:'📰', name:'Front Page',     desc:'Survive a press scandal'},
+  {id:'icon_status', icon:'😎', name:'Icon',           desc:'Reach 90 reputation'},
 ];
 
 /* ============================================================
@@ -446,7 +476,21 @@ function newState(name, pos, club, tier){
     pendingFix:null, seasonResult:null,
     history:[], achievements:[], pendingTransfer:false,
     newAchievements:[],
+    reputation:50, yellows:0, reds:0, banMatches:0, jeopardyWins:0,
   };
+}
+function migrate(d){
+  if(!d) return d;
+  if(!d.history) d.history=[];
+  if(!d.achievements) d.achievements=[];
+  if(!d.newAchievements) d.newAchievements=[];
+  if(d.clubStrength==null) d.clubStrength=clubBy(d.club)[2];
+  if(d.reputation==null) d.reputation=50;
+  if(d.yellows==null) d.yellows=0;
+  if(d.reds==null) d.reds=0;
+  if(d.banMatches==null) d.banMatches=0;
+  if(d.jeopardyWins==null) d.jeopardyWins=0;
+  return d;
 }
 
 /* ============================================================
@@ -464,12 +508,7 @@ async function loadSave(){
   if(!raw){ try{ raw=localStorage.getItem(SAVE_KEY); } catch(e){} }
   if(!raw) return null;
   try{
-    const d=JSON.parse(raw);
-    if(!d.history) d.history=[];
-    if(!d.achievements) d.achievements=[];
-    if(!d.newAchievements) d.newAchievements=[];
-    if(d.clubStrength==null) d.clubStrength=clubBy(d.club)[2];
-    return d;
+    return migrate(JSON.parse(raw));
   } catch(e){ return null; }
 }
 
@@ -566,6 +605,13 @@ function refreshHub(){
   $('enTxt').textContent=Math.round(S.energy)+'%';
   $('enBar').style.width=S.energy+'%';
   $('enBar').style.background=S.energy<30?'var(--hot)':'var(--led)';
+  const rep=Math.round(S.reputation);
+  $('repTxt').textContent=rep+' · '+repLabel(rep);
+  $('repBar').style.width=rep+'%';
+  $('repBar').style.background=rep>=66?'var(--good)':rep>=33?'var(--led)':'var(--hot)';
+  const ban=$('banTag');
+  if(S.banMatches>0){ ban.style.display='inline'; ban.textContent='🚫 BANNED ('+S.banMatches+')'; }
+  else ban.style.display='none';
   $('skPow').textContent=pct(S.skills.power);
   $('skAcc').textContent=pct(S.skills.accuracy);
   $('skCur').textContent=pct(S.skills.curl);
@@ -575,9 +621,14 @@ function refreshHub(){
   $('fixAway').textContent=S.pendingFix.away;
   $('fixHome').style.color=S.pendingFix.home===S.club?'var(--led)':'';
   $('fixAway').style.color=S.pendingFix.away===S.club?'var(--led)':'';
+  $('playBtn').textContent=S.banMatches>0?'⛔ Serve suspension':'▶ Play match';
 }
 const money = n => '£'+(n>=1000?(n/1000).toFixed(n>=10000?0:1)+'k':n);
 const pct = v => Math.round(v*100);
+function repLabel(r){ return r>=85?'Icon':r>=66?'Loved':r>=45?'Respected':r>=25?'Doubted':'Outcast'; }
+function adjRep(n){ S.reputation=clamp((S.reputation||50)+n,0,100); if(S.reputation>=90) unlockAchievement('icon_status'); }
+function adjCash(n){ S.cash=Math.max(0,Math.round(S.cash+n)); }
+function adjEnergy(n){ S.energy=clamp(S.energy+n,0,100); }
 function ordinal(n){ const s=["th","st","nd","rd"], v=n%100; return n+(s[(v-20)%10]||s[v]||s[0]); }
 function makeFixture(){
   const pool=leagueClubs().map(c=>c[0]).filter(n=>n!==S.club);
@@ -598,7 +649,12 @@ $('restBtn').onclick=()=>{ S.energy=Math.min(100,S.energy+40); haptic(30); toast
 $('tableBtn').onclick=()=>{ buildTable(); go('table'); };
 $('shopBtn').onclick=()=>{ buildShop(); go('shop'); };
 $('statsBtn').onclick=()=>{ buildStats(); go('stats'); };
-$('playBtn').onclick=()=>{ if(S.energy<20){ toast("Need at least 20% energy"); return;} startMatch(); };
+$('jeopardyBtn').onclick=()=>openJeopardy(()=>{ refreshHub(); go('hub'); });
+$('playBtn').onclick=()=>{
+  if(S.banMatches>0){ serveSuspension(); return; }
+  if(S.energy<20){ toast("Need at least 20% energy"); return;}
+  startMatch();
+};
 
 let toastT;
 function toast(t){
@@ -680,6 +736,10 @@ function buildStats(){
   $('stRating').textContent=S.ratingN>1?S.rating.toFixed(1):'—';
   const bestTier=Math.min(...[S.tier,...S.history.map(h=>h.tier)]);
   $('stBestDiv').textContent=DIVISIONS[bestTier]?DIVISIONS[bestTier].code:'—';
+  $('stRep').textContent=Math.round(S.reputation);
+  $('stYel').textContent=S.yellows||0;
+  $('stRed').textContent=S.reds||0;
+  $('stJp').textContent=S.jeopardyWins||0;
 
   // Achievements grid
   const grid=$('achievGrid'); grid.innerHTML='';
@@ -770,7 +830,7 @@ $('transferStayBtn').onclick=()=>{
 let M=null;
 function startMatch(){
   const fx=S.pendingFix;
-  M={ fx, opp:fx.opp, atHome:fx.atHome, homeName:fx.home, awayName:fx.away, home:0, away:0, myGoals:0, seq:[], idx:-1, rating:6.0 };
+  M={ fx, opp:fx.opp, atHome:fx.atHome, homeName:fx.home, awayName:fx.away, home:0, away:0, myGoals:0, seq:[], idx:-1, rating:6.0, ratingBonus:0, sentOff:false };
   const oppStr=clubBy(M.opp)[2], myStr=S.clubStrength;
   const nChances=3+Math.floor(Math.random()*3);
   const seq=[];
@@ -779,6 +839,7 @@ function startMatch(){
   const oppGoals=poisson(oppStr/42+(M.atHome?0:0.3));
   for(let i=0;i<teammateGoals;i++) seq.push({type:'team'});
   for(let i=0;i<oppGoals;i++) seq.push({type:'opp'});
+  if(Math.random()<0.55) seq.push({type:'challenge'}); // two-footed flashpoint
   shuffle(seq);
   seq.forEach((e,i)=> e.min=Math.min(90,Math.round(8+i*(82/(seq.length))+Math.random()*6)));
   seq.sort((a,b)=>a.min-b.min);
@@ -798,7 +859,11 @@ function nextMoment(){
   M.idx++;
   if(M.idx>=M.seq.length){ endMatch(); return; }
   const e=M.seq[M.idx]; $('mMin').textContent=e.min+"'";
-  if(e.type==='shot'){ openShot(e.min); }
+  if(e.type==='challenge'){ openChallenge(nextMoment); }
+  else if(e.type==='shot'){
+    if(M.sentOff){ momentText("Down to ten","🟥 Watching from the tunnel, your side can't carve out the chance.","Continue ▶",nextMoment); }
+    else openShot(e.min);
+  }
   else if(e.type==='team'){ addGoalToSide(true); haptic(80); momentText("Team goal","⚽ Your teammate finishes it off — "+sideScore(),"Continue ▶",nextMoment); }
   else { addGoalToSide(false); haptic([40,20]); momentText(clubBy(M.opp)[1]+" score","😬 "+M.opp+" hit back — "+sideScore(),"Continue ▶",nextMoment); }
 }
@@ -817,11 +882,14 @@ function endMatch(){
   const appearance=Math.round(1200*tierBonus);
   const goalBonus=M.myGoals*Math.round(1500*tierBonus);
   const winBonus=won?Math.round(2500*tierBonus):(draw?Math.round(800*tierBonus):0);
-  const earned=appearance+goalBonus+winBonus;
+  let earned=appearance+goalBonus+winBonus;
+  // Reputation lifts your commercial pull → better match earnings
+  earned=Math.round(earned*(0.85+(S.reputation||50)/200));
   S.cash+=earned; S.goals+=M.myGoals;
-  M.rating=Math.min(10,6.0+M.myGoals*1.2+(won?0.8:draw?0.2:-0.3)+(M.myGoals>=2?0.4:0));
+  M.rating=clamp(6.0+M.myGoals*1.2+(won?0.8:draw?0.2:-0.3)+(M.myGoals>=2?0.4:0)+(M.ratingBonus||0)+(M.sentOff?-1.2:0),1,10);
   S.rating=(S.rating*S.ratingN+M.rating)/(S.ratingN+1); S.ratingN++;
   S.skills.accuracy=Math.min(0.98,S.skills.accuracy+0.004);
+  adjRep(M.myGoals*2+(won?2:draw?0:-1)); // performances build (or dent) your name
 
   checkMatchAchievements();
 
@@ -881,7 +949,7 @@ function afterResult(){
   if(S.pendingTransfer){
     buildTransfer(); go('transfer');
   } else {
-    refreshHub(); go('hub');
+    maybePostMatchEvent(()=>{ refreshHub(); go('hub'); });
   }
 }
 
@@ -918,6 +986,258 @@ function seasonEnd(){
   S.table=freshTable(S.tier,S.club);
   S.week=1; S.season++; S.pendingFix=null;
   S.pendingTransfer=true;
+  S.yellows=0; // disciplinary record resets each campaign
+}
+
+/* ============================================================
+   DECISION / EVENT ENGINE
+   Generic modal used by press scandals, in-match challenges
+   and the Jeopardy gamble.
+   ============================================================ */
+function decisionScreen({eyebrow,title,body,choices}){
+  $('decEyebrow').textContent=eyebrow||'Decision';
+  $('decTitle').textContent=title||'';
+  $('decBody').innerHTML=body||'';
+  const box=$('decChoices'); box.innerHTML='';
+  choices.forEach(ch=>{
+    const b=document.createElement('button');
+    b.className='btn '+(ch.cls!=null?ch.cls:'ghost');
+    b.style.marginBottom='10px';
+    b.innerHTML = ch.sub
+      ? `<div style="line-height:1.25;text-align:center"><div>${ch.label}</div><div class="small" style="font-weight:600;opacity:.78;margin-top:2px">${ch.sub}</div></div>`
+      : ch.label;
+    b.onclick=ch.onClick;
+    box.appendChild(b);
+  });
+  go('decision');
+}
+function showOutcome(title,body,cb,cont){
+  decisionScreen({ eyebrow:'Outcome', title, body,
+    choices:[ {label:cont||'Continue →', cls:'', onClick:()=>{ cb&&cb(); }} ] });
+}
+function runEvent(ev, finish){
+  decisionScreen({
+    eyebrow:ev.eyebrow, title:ev.title, body:ev.body,
+    choices: ev.choices.map(ch=>({
+      label:ch.label, sub:ch.sub, cls:ch.cls,
+      onClick:()=>{
+        const out=ch.resolve()||{};
+        if(ev.kind==='scandal') unlockAchievement('front_page');
+        save();
+        showOutcome(out.title||'Done', out.body||'', finish, out.cont);
+      }
+    }))
+  });
+}
+
+/* ============================================================
+   PRESS SCANDALS
+   Tabloid dilemmas that fire between matches. Each choice trades
+   off reputation, cash and energy — some are gambles.
+   ============================================================ */
+const SCANDALS = [
+  ()=>({
+    eyebrow:'📸 Tabloid Exclusive', title:'Caught On The Tiles',
+    body:`The Sunday papers splash photos of you leaving a nightclub at 4am — two days before a big match. The gaffer wants a word.`,
+    choices:[
+      {label:'Apologise to the fans', sub:'Safe · minor rep hit', resolve:()=>{
+        adjRep(-2); adjEnergy(+4);
+        return {title:'Crisis managed', body:'You front up, say sorry and knuckle down. The story fizzles out by midweek.'}; }},
+      {label:'Deny everything', sub:'Gamble', resolve:()=>{
+        if(Math.random()<0.5){ adjRep(+5); return {title:'Brazen — and it worked', body:`"That wasn't me." The public somehow buys it and you come off looking wronged.`}; }
+        adjRep(-8); const c=Math.min(S.cash,Math.round(S.cash*0.05)); adjCash(-c);
+        return {title:'Busted', body:`More photos surface. The club fines you ${money(c)} and the terraces turn frosty.`}; }},
+      {label:'Spin it with charity work', sub:'Costs cash · +rep', resolve:()=>{
+        const c=Math.min(S.cash,3000); adjCash(-c); adjRep(+6);
+        return {title:'Good PR', body:`A ${money(c)} donation to the local food bank flips the headline. The press love a redemption arc.`}; }},
+    ]
+  }),
+  ()=>({
+    eyebrow:'🎙 Post-Match Fallout', title:'Referee Rant Goes Viral',
+    body:`In a heated interview you called the officials "a disgrace". The FA has charged you with improper conduct.`,
+    choices:[
+      {label:'Accept the fine, stay quiet', sub:'Lose cash', resolve:()=>{
+        const c=Math.min(S.cash,4000); adjCash(-c); adjRep(+1);
+        return {title:'Paid up', body:`You cop the ${money(c)} fine and move on. Teammates respect that you took the heat.`}; }},
+      {label:'Double down online', sub:'Big gamble', resolve:()=>{
+        if(Math.random()<0.45){ adjRep(+9); return {title:'Folk hero', body:`The fanbase rallies behind you — you're the people's champion now.`}; }
+        adjRep(-7); S.banMatches+=1;
+        return {title:'Fuel on the fire', body:'The FA extends your ban by a match. That backfired badly.'}; }},
+      {label:'Grovelling apology', sub:'Safe', resolve:()=>{
+        adjRep(-1);
+        return {title:'Smoothed over', body:'A carefully-worded statement makes the whole thing go away.'}; }},
+    ]
+  }),
+  ()=>({
+    eyebrow:'💰 Transfer Whispers', title:'Tapped Up',
+    body:`A rival club's agent is spotted at your favourite restaurant. The rumour mill says they want you — your current club is furious.`,
+    choices:[
+      {label:'Pledge loyalty publicly', sub:'+rep', resolve:()=>{
+        adjRep(+5); return {title:'One of our own', body:'You kiss the badge on camera. The terraces adore you.'}; }},
+      {label:'Stay coy, keep options open', sub:'+a little cash', resolve:()=>{
+        adjRep(-1); adjCash(+2000); return {title:'Playing it cool', body:'Your agent leverages the interest into a small image-rights bump. +£2k.'}; }},
+      {label:'Hand in a transfer request', sub:'Risky · +cash, −rep', resolve:()=>{
+        adjRep(-6); adjCash(+6000); return {title:'Burned bridges', body:'A loyalty bonus lands in your account, but the fans feel betrayed.'}; }},
+    ]
+  }),
+  ()=>({
+    eyebrow:'🥊 Dressing Room Leak', title:'Training Ground Bust-Up',
+    body:`Word leaks that you squared up to a senior teammate in training. The squad is split down the middle.`,
+    choices:[
+      {label:'Apologise to the squad', sub:'Safe', resolve:()=>{
+        adjRep(+2); adjEnergy(-4); return {title:'Air cleared', body:'You hold your hands up. The dressing room moves on.'}; }},
+      {label:'Stand your ground', sub:'Gamble', resolve:()=>{
+        if(Math.random()<0.5){ adjRep(+6); return {title:'Alpha', body:`The lads respect that you didn't back down. You're a leader now.`}; }
+        adjRep(-6); adjEnergy(-8); return {title:'Toxic', body:'The mood sours and your focus suffers in the gym.'}; }},
+    ]
+  }),
+  ()=>({
+    eyebrow:'🎲 Betting Scandal', title:'The Gambling Exposé',
+    body:`A newspaper alleges you've been wagering big in private high-stakes games. The integrity unit wants answers.`,
+    choices:[
+      {label:'Come clean, seek help', sub:'+rep · small cost', resolve:()=>{
+        const c=Math.min(S.cash,1500); adjCash(-c); adjRep(+4);
+        return {title:'Respect', body:'Your honesty wins sympathy. You quietly settle and front up.'}; }},
+      {label:'Lawyer up and deny', sub:'Costly gamble', resolve:()=>{
+        const c=Math.min(S.cash,5000); adjCash(-c);
+        if(Math.random()<0.55){ adjRep(+2); return {title:'Case dropped', body:`${money(c)} in legal fees buries it. No further action.`}; }
+        adjRep(-9); S.banMatches+=1;
+        return {title:'Found guilty', body:'The panel hands you a one-match ban and a battered reputation.'}; }},
+    ]
+  }),
+  ()=>({
+    eyebrow:'👟 Sponsor Drama', title:'Sponsor Wants Words',
+    body:`Your boot sponsor is fuming after you were snapped in a rival brand's trainers. They're threatening to pull the deal.`,
+    choices:[
+      {label:'Grovel and re-sign', sub:'+cash', resolve:()=>{
+        adjCash(+4000); adjRep(-1); return {title:'Deal saved', body:'A public love-in with the brand earns a renewal bonus. +£4k.'}; }},
+      {label:'Walk away, court rivals', sub:'Gamble', resolve:()=>{
+        if(Math.random()<0.5){ adjCash(+9000); adjRep(+3); return {title:'Bigger deal', body:'A rival swoops with a bumper contract. +£9k and a style-icon tag.'}; }
+        adjCash(-2000); adjRep(-3); return {title:'Left in limbo', body:'Nobody bites. You lose appearance money in the gap.'}; }},
+    ]
+  }),
+];
+function triggerScandal(finish){
+  const ev=SCANDALS[Math.floor(Math.random()*SCANDALS.length)]();
+  ev.kind='scandal';
+  runEvent(ev, finish);
+}
+function maybePostMatchEvent(finish){
+  if(Math.random()<0.28) triggerScandal(finish);
+  else finish();
+}
+
+/* ============================================================
+   TWO-FOOTED CHALLENGE  (in-match decision)
+   ============================================================ */
+function addYellow(){
+  S.yellows=(S.yellows||0)+1;
+  if(S.yellows%5===0){ S.banMatches+=1; return true; }
+  return false;
+}
+function openChallenge(after){
+  const min=(M.seq[M.idx]&&M.seq[M.idx].min)||0;
+  const villain=clubBy(M.opp)[1];
+  runEvent({
+    eyebrow:`⚠ Flashpoint · ${min}'`,
+    title:'Two-Footed Challenge',
+    body:`${villain}'s defender flies in studs-up and catches you late. The crowd erupts and the ref reaches for his pocket. How do you react?`,
+    choices:[
+      {label:'🧊 Stay composed', sub:'Ride it · win the free kick', resolve:()=>{
+        adjRep(+3); M.ratingBonus=(M.ratingBonus||0)+0.3; unlockAchievement('ironman'); haptic(45);
+        return {title:'Ice cold', body:`You bounce straight up and wave the physio away. The ref books their man and the crowd roars your name. Free kick won.`}; }},
+      {label:'🎭 Go down, win the call', sub:'Milk it · risk a dive booking', resolve:()=>{
+        if(Math.random()<0.6){ adjRep(-1); M.ratingBonus=(M.ratingBonus||0)+0.15;
+          return {title:'Won the call', body:`You go down clutching your shin and the ref buys it — their defender is booked. Clever, some say. Soft, say others.`}; }
+        const b=addYellow(); adjRep(-4);
+        return {title:'Booked for diving!', body:`The ref isn't fooled and flashes yellow at you.${b?` That's your fifth of the season — you'll miss the next match.`:''}`}; }},
+      {label:'🤬 Square up to him', sub:'Defend yourself · risk a card', resolve:()=>{
+        const r=Math.random();
+        if(r<0.5){ adjRep(+4); M.ratingBonus=(M.ratingBonus||0)+0.1;
+          return {title:'Stood tall', body:'You get nose-to-nose and let him know. The ref calms it down — your teammates love the fire.'}; }
+        if(r<0.8){ const b=addYellow(); adjRep(-2);
+          return {title:'Booked', body:`Handbags. You both go in the book for the scuffle.${b?` Fifth yellow — a one-match ban is coming.`:''}`}; }
+        S.reds=(S.reds||0)+1; S.banMatches+=2; M.sentOff=true; adjRep(-7);
+        unlockAchievement('seeing_red'); haptic([120,40,120]);
+        return {title:'🟥 SENT OFF', body:'It boils over and you throw a hand. Straight red. You trudge off to a two-match ban.'}; }},
+    ]
+  }, after);
+}
+
+/* ============================================================
+   JEOPARDY  (high-stakes spot-kick gamble)
+   ============================================================ */
+function openJeopardy(finish){
+  if(S.banMatches>0){ /* still allowed; gambling isn't football */ }
+  if(S.cash<200){ toast('Need at least £200 to play'); finish&&finish(); return; }
+  decisionScreen({
+    eyebrow:'⚡ Jeopardy · High Roller',
+    title:'Spot-Kick Gamble',
+    body:`Put your wages on the line in a private shootout. Pick a stake, then beat the keeper. Your <b style="color:var(--chalk)">accuracy (${pct(S.skills.accuracy)}%)</b> tips the odds.<br><br>Balance: <b style="color:var(--led)">${money(S.cash)}</b>`,
+    choices:[
+      {label:'Safe bet', sub:'Stake 10% · pays 1.6×', onClick:()=>jeopardyAim(0.10,1.6,finish)},
+      {label:'Bold bet', sub:'Stake 30% · pays 2.0×', onClick:()=>jeopardyAim(0.30,2.0,finish)},
+      {label:'All or nothing', sub:'Stake 60% · pays 2.6×', onClick:()=>jeopardyAim(0.60,2.6,finish)},
+      {label:'← Walk away', cls:'', onClick:()=>{ finish&&finish(); }},
+    ]
+  });
+}
+function jeopardyAim(frac,mult,finish){
+  const stake=Math.max(50,Math.round(S.cash*frac));
+  const corners=['bottom-left','down the middle','bottom-right'];
+  const pick=corner=>{
+    const kg=Math.floor(Math.random()*3);
+    const scored = (kg!==corner)
+      ? Math.random() < (0.80+S.skills.accuracy*0.18)
+      : Math.random() < (S.skills.accuracy*0.45);
+    if(scored){
+      const win=Math.round(stake*(mult-1)); adjCash(+win);
+      S.jeopardyWins=(S.jeopardyWins||0)+1; unlockAchievement('high_roller'); adjRep(+2); haptic([80,30,120]);
+      save();
+      showOutcome('🎉 Top bins!',
+        `You rifle it ${corners[corner]} and the keeper has no chance. You bank <b style="color:var(--good)">+${money(win)}</b>.<br><br>New balance: ${money(S.cash)}`,
+        ()=>{ finish&&finish(); }, 'Cash out →');
+    } else {
+      adjCash(-stake); adjRep(-2); haptic([40,20,40]); save();
+      showOutcome('🧤 Keeper guesses right!',
+        `The keeper springs the right way and smothers it ${corners[corner]}. You lose <b style="color:var(--bad)">${money(stake)}</b>.<br><br>Balance: ${money(S.cash)}`,
+        ()=>{ finish&&finish(); }, 'Take it on the chin →');
+    }
+  };
+  decisionScreen({
+    eyebrow:`⚡ Jeopardy · Stake ${money(stake)}`,
+    title:'Pick Your Corner',
+    body:`The keeper is set and the stadium holds its breath. Where do you put it? A goal pays <b style="color:var(--led)">${mult}×</b> your stake.`,
+    choices:[
+      {label:'↙ Bottom left', onClick:()=>pick(0)},
+      {label:'⬆ Down the middle', onClick:()=>pick(1)},
+      {label:'↘ Bottom right', onClick:()=>pick(2)},
+    ]
+  });
+}
+
+/* ============================================================
+   SUSPENSION  (serve a ban — match simulated without you)
+   ============================================================ */
+function serveSuspension(){
+  const fx=S.pendingFix||(S.pendingFix=makeFixture());
+  const myIsHome=fx.home===S.club;
+  const myStr=S.clubStrength, oppStr=clubBy(fx.opp)[2];
+  const myGoals=poisson(myStr/50), oppGoals=poisson(oppStr/42+(myIsHome?0:0.3));
+  const hg=myIsHome?myGoals:oppGoals, ag=myIsHome?oppGoals:myGoals;
+  applyResult(fx.home,fx.away,hg,ag);
+  M={homeName:fx.home,awayName:fx.away}; simulateOtherMatches(); M=null;
+  S.banMatches=Math.max(0,S.banMatches-1); adjEnergy(+8); S.week++; S.seasonResult=null;
+  if(S.week>matchesPerSeason()) seasonEnd(); else S.pendingFix=makeFixture();
+  const won=(myIsHome&&hg>ag)||(!myIsHome&&ag>hg), draw=hg===ag;
+  $('rVerdict').textContent=won?'WIN':draw?'DRAW':'DEFEAT';
+  $('rVerdict').style.color=won?'var(--good)':draw?'var(--led)':'var(--bad)';
+  $('rHomeN').textContent=clubBy(fx.home)[1]; $('rAwayN').textContent=clubBy(fx.away)[1];
+  $('rHome').textContent=hg; $('rAway').textContent=ag;
+  $('rStats').innerHTML=`<div class="small mute" style="padding:10px 0">🚫 You sat this one out — suspended. ${S.banMatches>0?(S.banMatches+' match(es) of your ban remain.'):"Ban served — you're available again next match."}</div>`;
+  renderSeasonBanner();
+  $('rAchievUnlock').innerHTML='';
+  go('result'); save();
 }
 
 /* ============================================================
@@ -1356,19 +1676,41 @@ function init3D(){
 }
 function onResize3D(){
   if(!three.renderer) return;
-  // window.innerWidth/Height is reliable; canvas is CSS-stretched to fill container
-  const w=window.innerWidth, h=window.innerHeight;
+  // Measure the ACTUAL canvas container, not the window. On phones the shot
+  // section can be narrower/shorter than the viewport (PWA insets, max-width
+  // app shell), and sizing to the window is what made 3D look cropped.
+  const host=$('three');
+  const r=host.getBoundingClientRect();
+  let w=Math.round(r.width), h=Math.round(r.height);
+  if(w<2||h<2){ w=window.innerWidth; h=window.innerHeight; } // fallback if hidden
+  three.renderer.setPixelRatio(Math.min(2,window.devicePixelRatio||1));
   three.renderer.setSize(w,h,false);
-  three.cam.aspect=w/h;
   const asp=w/h;
-  if(asp<0.70){      three.cam.fov=70; three.cam.position.set(0,2.8,15.0); }
-  else if(asp<0.90){ three.cam.fov=63; three.cam.position.set(0,3.0,13.5); }
-  else {             three.cam.fov=55; three.cam.position.set(0,3.2,12.5); }
-  three.cam.lookAt(0,1.2,-2);
+  three.cam.aspect=asp;
+
+  // Pull the camera back a touch on tall/narrow phones so there's room to fit.
+  const camY = asp<0.62 ? 2.6 : asp<0.80 ? 2.9 : 3.1;
+  const camZ = asp<0.62 ? 15.5 : asp<0.80 ? 14.0 : asp<1.05 ? 12.8 : 12.0;
+  const lookY=1.15, lookZ=-2;
+  three.cam.position.set(0,camY,camZ);
+  three.cam.lookAt(0,lookY,lookZ);
+
+  // Compute a vertical FOV that GUARANTEES the whole goal mouth fits both
+  // horizontally and vertically — this is the real cropping fix. THREE uses a
+  // vertical FOV, so on portrait screens the horizontal angle shrinks with the
+  // aspect ratio and clips the goalposts unless we widen the FOV to compensate.
+  const dist=Math.hypot(camZ-three.goalZ, camY-lookY); // camera→goal distance
+  const halfW=three.goalW/2 + 1.1;   // goal half-width + margin
+  const halfH=three.goalH + 1.0;     // goal height + headroom for lobbed shots
+  const vfovForH=2*Math.atan(halfH/dist);
+  const vfovForW=2*Math.atan((halfW/asp)/dist);
+  let fov=Math.max(vfovForH,vfovForW)*(180/Math.PI);
+  three.cam.fov=clamp(fov,40,100);
   three.cam.updateProjectionMatrix();
   three.renderer.render(three.scene,three.cam);
 }
 window.addEventListener('resize',()=>{ if(mode==='3d') onResize3D(); });
+window.addEventListener('orientationchange',()=>{ if(mode==='3d') setTimeout(onResize3D,250); });
 function goalPoint3D(fx,fy){ return new THREE.Vector3(fx*three.goalW/2*0.92, 0.12+fy*three.goalH*0.95, three.goalZ); }
 function renderAim3D(){
   if(!three.renderer) return;
@@ -1526,12 +1868,8 @@ buildSetup();
   if(sv){
     $('continueBtn').style.display='block';
     $('continueBtn').onclick=()=>{
-      S=sv;
+      S=migrate(sv);
       if(S.seasonResult) S.seasonResult=null;
-      if(S.clubStrength==null) S.clubStrength=clubBy(S.club)[2];
-      if(!S.history) S.history=[];
-      if(!S.achievements) S.achievements=[];
-      if(!S.newAchievements) S.newAchievements=[];
       enterHub();
     };
   }

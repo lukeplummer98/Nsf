@@ -2,7 +2,7 @@
    Caches all game assets for offline play.
    Strategy: Cache-first for static assets, network-first for anything else. */
 
-const CACHE = 'starstriker-v1';
+const CACHE = 'starstriker-v2';
 const PRECACHE = [
   './',
   './index.html',
