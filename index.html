@@ -17,12 +17,12 @@
     --night:#070B16; --night2:#0E1526; --line:#1E2A44; --chalk:#EAF0E6; --mute:#8A97B2;
     --grass:#1F9D4D; --grass2:#157A3A; --led:#FFC23D; --hot:#FF4D2E; --good:#3FE08A; --bad:#FF5470;
   }
-  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent;margin:0;padding:0;touch-action:manipulation}
-  html,body{height:100%;overscroll-behavior:none}
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent;margin:0;padding:0}
+  html,body{height:100%}
   body{background:var(--night);color:var(--chalk);font-family:"Inter",system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;overflow:hidden;-webkit-user-select:none;user-select:none}
   #app{position:fixed;inset:0;max-width:560px;margin:0 auto;display:flex;flex-direction:column;
     background:radial-gradient(120% 60% at 50% -10%, rgba(255,194,61,.10), transparent 60%),linear-gradient(180deg,#0A1020,#070B16 60%);}
-  .screen{flex:1;display:none;flex-direction:column;min-height:0;overflow-y:auto;-webkit-overflow-scrolling:touch;overscroll-behavior:contain}
+  .screen{flex:1;display:none;flex-direction:column;min-height:0;overflow-y:auto;-webkit-overflow-scrolling:touch}
   .screen.on{display:flex}
   .pad{padding:18px 16px calc(18px + env(safe-area-inset-bottom))}
   .display{font-family:"Anton","Archivo Black",Impact,sans-serif;letter-spacing:.5px;line-height:.92;text-transform:uppercase}
@@ -34,7 +34,7 @@
   .led-cell .k{font-family:"Inter";font-size:9px;letter-spacing:.18em;color:var(--mute);text-transform:uppercase;font-weight:700}
   .led-cell .v{font-size:26px;color:var(--led);text-shadow:0 0 14px rgba(255,194,61,.35);margin-top:2px}
   .led-cell .v.white{color:var(--chalk);text-shadow:none}
-  button{font-family:inherit;cursor:pointer;border:none;color:inherit;background:none}
+  button{font-family:inherit;cursor:pointer;border:none;color:inherit;background:none;touch-action:manipulation}
   .btn{display:flex;align-items:center;justify-content:center;gap:8px;width:100%;padding:16px;border-radius:14px;font-weight:800;font-size:16px;background:var(--led);color:#1A1203;letter-spacing:.02em;box-shadow:0 6px 0 #B07f12,0 10px 24px rgba(255,194,61,.25);transition:transform .05s,box-shadow .05s;-webkit-tap-highlight-color:transparent}
   .btn:active{transform:translateY(4px);box-shadow:0 2px 0 #B07f12}
   .btn.ghost{background:var(--night2);color:var(--chalk);border:1px solid var(--line);box-shadow:none}
