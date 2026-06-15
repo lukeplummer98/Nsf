@@ -286,7 +286,10 @@
     <div id="three" style="touch-action:none"></div>
     <div class="shot-hud">
       <div class="pill" id="shotScore">0 – 0</div>
-      <div class="mode-toggle"><button id="m2d" class="on">2D</button><button id="m3d">3D</button></div>
+      <div style="display:flex;flex-direction:column;align-items:flex-end;gap:6px">
+        <div class="mode-toggle"><button id="m2d" class="on">2D</button><button id="m3d">3D</button></div>
+        <div class="pill" id="windPill" style="font-size:11px;opacity:0;transition:opacity .4s;pointer-events:none">💨 —</div>
+      </div>
     </div>
     <div class="pwrwrap"><div class="pwrfill" id="pwrfill"></div></div>
     <div class="shot-foot"><span class="hint" id="shotHint">Drag from the ball toward the goal — release to shoot. Curl your swipe to bend it.</span></div>
@@ -926,8 +929,33 @@ function openShot(min){
   curMin=min;
   $('shotScore').textContent=`${clubBy(M.homeName)[1]} ${M.home} – ${M.away} ${clubBy(M.awayName)[1]}`;
   shotState={ phase:'aim', path:[], startT:0 };
+
+  // Wind: random strength and direction per shot
+  const wStr=Math.random()*0.52;
+  M.wind={ dx:(Math.random()<0.5?-1:1)*wStr, str:wStr };
+
+  // Blockers: 1-3 outfield players between ball and goal
+  const nB=M.atHome?1:1+Math.floor(Math.random()*2);
+  M.blockers=[];
+  for(let i=0;i<nB;i++){
+    M.blockers.push({
+      x:(Math.random()-0.5)*1.7,          // normalised pitch x
+      depth:0.25+Math.random()*0.45,       // 0=near goal, 1=near ball
+      speed:0.32+Math.random()*0.42,
+      col:M.atHome?'#3FE08A':'#FF5470'
+    });
+  }
+
+  // Wind pill
+  const wp=$('windPill');
+  if(M.wind.str>0.04){
+    const lbl=M.wind.str>0.36?'STRONG':M.wind.str>0.18?'MED':'LIGHT';
+    wp.textContent=`💨 ${lbl} ${M.wind.dx>0?'→':'←'}`;
+    wp.style.opacity='1';
+  } else { wp.style.opacity='0'; }
+
   go('shot');
-  $('shotHint').textContent="Drag from the ball toward goal — release to shoot. Bend your swipe to curl it.";
+  $('shotHint').textContent="Drag from the ball toward goal — release to shoot. Curl your swipe to bend it.";
   $('shotHint').style.opacity='1'; $('flash').style.opacity='0';
   if(mode==='2d'){ setup2D(); draw2DAim(); } else { setup3D(); }
 }
@@ -942,19 +970,36 @@ function switchMode(m){
 
 function resolveShot(p){
   const acc=S.skills.accuracy, noise=(1-acc)*0.20+p.power*0.07;
-  const g=()=> (Math.random()+Math.random()+Math.random()-1.5)/1.5;
-  let fx=p.aimX+g()*noise, fy=p.aimY+g()*noise*0.85;
+  const g=()=>(Math.random()+Math.random()+Math.random()-1.5)/1.5;
+
+  // Wind drifts the ball — stronger at low power
+  const windDrift=M.wind ? M.wind.dx*(1-p.power*0.55)*0.48 : 0;
+  let fx=p.aimX+g()*noise+windDrift, fy=p.aimY+g()*noise*0.85;
   const onTarget=fx>=-1&&fx<=1&&fy>=0&&fy<=1;
-  if(!onTarget) return {result:'miss',fx,fy,keeperX:p.aimX*0.5,save:false};
+  if(!onTarget) return {result:'miss',fx,fy,keeperX:p.aimX*0.5};
+
+  // Blockers intercept before keeper
+  if(M.blockers){
+    for(const b of M.blockers){
+      const gap=Math.abs((p.aimX+windDrift*0.5)-b.x);
+      const reach=b.speed*0.55*(1-p.power*0.52);
+      if(gap<reach+0.11){
+        const prob=Math.min((1-gap/0.85)*0.55*(1-p.power*0.42)*(0.65+S.tier*0.05),0.72);
+        if(Math.random()<prob) return {result:'blocked',fx:b.x,pitchDepth:b.depth,keeperX:0,blocker:b};
+      }
+    }
+  }
+
   const guess=clamp(p.aimX*0.55+g()*0.55,-1,1);
   const dx=Math.abs(fx-guess);
-  const cornerBonus=(Math.abs(fx)>0.62?0.28:0)+(fy>0.6?0.22:0)+(fy<0.18?0.05:0);
-  const curveBonus=Math.min(0.28,Math.abs(p.curve)*0.45*(0.5+S.skills.curl));
-  const powerBonus=p.power*0.22;
+  const cornerBonus=(Math.abs(fx)>0.62?0.30:0)+(fy>0.62?0.24:0)+(fy<0.18?0.05:0);
+  const curveBonus=Math.min(0.32,Math.abs(p.curve)*0.55*(0.5+S.skills.curl));
+  const powerBonus=p.power*0.24;
   const beat=dx*0.85+cornerBonus+curveBonus+powerBonus+g()*0.10;
-  const keeperSkill=0.55+S.tier*0.03;
+  // Tier 0=PL (hardest 0.70), Tier 4=NL (easiest 0.42)
+  const keeperSkill=0.42+(4-S.tier)*0.07;
   const isGoal=beat>keeperSkill;
-  return {result:isGoal?'goal':'save',fx,fy,keeperX:guess,save:!isGoal};
+  return {result:isGoal?'goal':'save',fx,fy,keeperX:guess};
 }
 function clamp(v,a,b){ return Math.max(a,Math.min(b,v)); }
 
@@ -964,16 +1009,20 @@ function applyShotOutcome(o){
     M.myGoals++; addGoalToSide(true);
     $('shotScore').textContent=`${clubBy(M.homeName)[1]} ${M.home} – ${M.away} ${clubBy(M.awayName)[1]}`;
     haptic([100,30,100]);
-    bigFlash("GOAL!", 'var(--led)');
-    setTimeout(()=> momentText("Goal!",`⚽ ${S.name} scores! ${sideScore()}`,"Continue ▶",nextMoment), 1100);
+    bigFlash("GOAL!",'var(--led)');
+    setTimeout(()=>momentText("Goal!",`⚽ ${S.name} scores! ${sideScore()}`,"Continue ▶",nextMoment),1100);
+  } else if(o.result==='blocked'){
+    haptic([60,25,60]);
+    bigFlash("BLOCKED",'var(--mute)');
+    setTimeout(()=>momentText("Blocked",`🛡 A defender throws themselves in the way! ${sideScore()}`,"Continue ▶",nextMoment),1000);
   } else if(o.result==='save'){
     haptic([40,20,40]);
     bigFlash("SAVED",'var(--chalk)');
-    setTimeout(()=> momentText("Saved",`🧤 The keeper denies you. ${sideScore()}`,"Continue ▶",nextMoment), 1000);
+    setTimeout(()=>momentText("Saved",`🧤 The keeper denies you. ${sideScore()}`,"Continue ▶",nextMoment),1000);
   } else {
     haptic(60);
     bigFlash("MISS",'var(--bad)');
-    setTimeout(()=> momentText("Off target",`😖 Just wide! ${sideScore()}`,"Continue ▶",nextMoment), 1000);
+    setTimeout(()=>momentText("Off target",`😖 Just wide! ${sideScore()}`,"Continue ▶",nextMoment),1000);
   }
 }
 function bigFlash(t,col){
@@ -993,14 +1042,14 @@ function gestureToParams(path,rect){
   let curve=0;
   if(path.length>=3){
     const m=path[Math.floor(path.length/2)];
-    const vx=b.x-a.x, vy=b.y-a.y, vl=Math.hypot(vx,vy)||1, nx=-vy/vl, ny=vx/vl;
-    const dev=((m.x-a.x)*nx+(m.y-a.y)*ny)/(rect.w*0.5);
-    curve=clamp(dev*2.2,-1,1);
+    const vx=b.x-a.x,vy=b.y-a.y,vl=Math.hypot(vx,vy)||1,nx=-vy/vl;
+    const dev=((m.x-a.x)*nx+(m.y-a.y)*(vx/vl))/(rect.w*0.5);
+    curve=clamp(dev*2.8,-1,1); // more responsive curl
   }
   return {aimX,aimY,power,curve};
 }
 
-/* ---- 2D ---- */
+/* ---- 2D helpers ---- */
 function setup2D(){
   canvas=$('shotCanvas'); ctx=canvas.getContext('2d'); resize2D();
   attachInput(canvas,render2DLoopAim,fire2D);
@@ -1033,15 +1082,33 @@ function drawPitch2D(){
   ctx.beginPath(); ctx.moveTo(g.goalX,g.goalY+g.goalH); ctx.lineTo(g.goalX,g.goalY); ctx.lineTo(g.goalX+g.goalW,g.goalY); ctx.lineTo(g.goalX+g.goalW,g.goalY+g.goalH); ctx.stroke();
   return g;
 }
-function drawKeeper2D(g,kx){
-  const cx=g.goalX+g.goalW*((kx+1)/2), kw=g.goalW*0.16, kh=g.goalH*0.9;
-  ctx.fillStyle='#ffd23d'; roundRect(cx-kw/2,g.goalY+g.goalH-kh,kw,kh,6); ctx.fill();
-  ctx.fillStyle='rgba(0,0,0,.25)'; ctx.fillRect(cx-kw/2,g.goalY+g.goalH-kh,kw,kh*0.28);
+function drawKeeper2D(g,kx,jumpFrac){
+  const cx=g.goalX+g.goalW*((kx+1)/2), kw=g.goalW*0.17, kh=g.goalH*0.92;
+  const jumpOff=(jumpFrac||0)*g.goalH*0.55;
+  // Body
+  ctx.fillStyle='#ffd23d';
+  roundRect(cx-kw/2, g.goalY+g.goalH-kh-jumpOff, kw, kh, 6); ctx.fill();
+  ctx.fillStyle='rgba(0,0,0,.25)';
+  ctx.fillRect(cx-kw/2, g.goalY+g.goalH-kh-jumpOff, kw, kh*0.28);
+  // Arms extended toward ball side
+  const armLen=kw*0.9, armY=g.goalY+g.goalH-kh*0.72-jumpOff;
+  const leanSign=kx>0?1:-1;
+  ctx.strokeStyle='#ffd23d'; ctx.lineWidth=kw*0.35; ctx.lineCap='round';
+  ctx.beginPath();
+  ctx.moveTo(cx+leanSign*kw*0.5, armY);
+  ctx.lineTo(cx+leanSign*(kw*0.5+armLen), armY-jumpOff*0.4);
+  ctx.stroke();
 }
 function draw2DAim(){
-  const g=drawPitch2D(); drawKeeper2D(g,0); drawBall2D(g.ballX,g.ballY,g.ballR);
-  if(shotState&&shotState.path&&shotState.path.length>1){ const p=gestureToParams(shotState.path,{w:W,h:H}); drawTrajectory2D(g,p); setPowerMeter(p.power); }
-  else setPowerMeter(0);
+  const g=drawPitch2D();
+  drawBlockers2D(g,null,0);
+  drawWindArrows2D();
+  drawKeeper2D(g,0,0);
+  drawBall2D(g.ballX,g.ballY,g.ballR);
+  if(shotState&&shotState.path&&shotState.path.length>1){
+    const p=gestureToParams(shotState.path,{w:W,h:H});
+    drawTrajectory2D(g,p); setPowerMeter(p.power);
+  } else setPowerMeter(0);
 }
 function drawBall2D(x,y,r){
   ctx.save(); ctx.shadowColor='rgba(0,0,0,.5)'; ctx.shadowBlur=8; ctx.shadowOffsetY=4;
@@ -1052,11 +1119,62 @@ function drawBall2D(x,y,r){
 function targetPoint2D(g,fx,fy){ return {x:g.goalX+g.goalW*((fx+1)/2),y:g.goalY+g.goalH-fy*g.goalH}; }
 function drawTrajectory2D(g,p){
   const t=targetPoint2D(g,p.aimX,p.aimY);
+  // Wind drift shifts the target visually
+  const wd=M&&M.wind?M.wind.dx*(1-p.power*0.55)*0.48:0;
+  const tx=t.x+wd*g.goalW*0.5;
   ctx.strokeStyle='rgba(255,194,61,.85)'; ctx.lineWidth=3; ctx.setLineDash([2,8]); ctx.lineCap='round';
   ctx.beginPath();
-  for(let i=0;i<=20;i++){ const u=i/20; const x=g.ballX+(t.x-g.ballX)*u+Math.sin(u*Math.PI)*p.curve*g.goalW*0.5; const y=g.ballY+(t.y-g.ballY)*u; if(i===0)ctx.moveTo(x,y);else ctx.lineTo(x,y); }
+  for(let i=0;i<=24;i++){
+    const u=i/24;
+    const x=g.ballX+(tx-g.ballX)*u + Math.sin(u*Math.PI)*p.curve*g.goalW*0.68; // bigger arc
+    const y=g.ballY+(t.y-g.ballY)*u;
+    i===0?ctx.moveTo(x,y):ctx.lineTo(x,y);
+  }
   ctx.stroke(); ctx.setLineDash([]);
-  ctx.fillStyle='rgba(255,77,46,.9)'; ctx.beginPath(); ctx.arc(t.x,t.y,7,0,7); ctx.fill();
+  ctx.fillStyle='rgba(255,77,46,.9)'; ctx.beginPath(); ctx.arc(tx,t.y,7,0,7); ctx.fill();
+  // Curl label
+  if(Math.abs(p.curve)>0.16){
+    ctx.save(); ctx.font=`bold 11px Inter,system-ui,sans-serif`;
+    ctx.fillStyle='rgba(255,194,61,.9)'; ctx.textAlign='center';
+    ctx.fillText(`CURL ${p.curve>0?'→':'←'} ${Math.round(Math.abs(p.curve)*100)}%`, g.ballX, g.ballY+24);
+    ctx.restore();
+  }
+}
+/* Blockers: draw outfield players on pitch. animU=0 = standing still, animU>0 = running */
+function drawBlockers2D(g,aimX,animU){
+  if(!M||!M.blockers) return;
+  const pitchTop=g.goalY+g.goalH;
+  M.blockers.forEach(b=>{
+    const nx=animU>0 ? b.x+(aimX-b.x)*Math.min(1,b.speed*animU*1.5) : b.x;
+    const bx=g.goalX+g.goalW*((clamp(nx,-1,1)+1)/2);
+    const by=pitchTop+(g.ballY-pitchTop)*(1-b.depth);
+    const r=6;
+    // Body
+    ctx.fillStyle=b.col||'#8A97B2';
+    ctx.beginPath(); ctx.ellipse(bx,by+r,r,r*1.4,0,0,Math.PI*2); ctx.fill();
+    // Head
+    ctx.fillStyle='#F2C08A';
+    ctx.beginPath(); ctx.arc(bx,by-r*0.8,r*0.85,0,Math.PI*2); ctx.fill();
+    // Impact ring when blocking
+    if(animU>0.82){
+      ctx.save(); ctx.globalAlpha=(animU-0.82)/0.18;
+      ctx.strokeStyle='#fff'; ctx.lineWidth=2;
+      ctx.beginPath(); ctx.arc(bx,by,r*2.6,0,Math.PI*2); ctx.stroke();
+      ctx.restore();
+    }
+  });
+}
+/* Wind arrows drawn on canvas */
+function drawWindArrows2D(){
+  if(!M||!M.wind||M.wind.str<0.04) return;
+  const str=M.wind.str, dir=M.wind.dx>0?1:-1;
+  const n=str>0.36?3:str>0.18?2:1;
+  ctx.save(); ctx.globalAlpha=0.35+str*0.9;
+  ctx.font=`bold ${11+str*10}px Inter,system-ui,sans-serif`;
+  ctx.fillStyle='#AAD4FF'; ctx.textAlign='center';
+  let txt=''; for(let i=0;i<n;i++) txt+=(dir>0?'→':'←')+' ';
+  ctx.fillText(txt.trim(), W/2, 24);
+  ctx.restore();
 }
 function render2DLoopAim(){ draw2DAim(); }
 function fire2D(){
@@ -1067,18 +1185,29 @@ function animateShot2D(p,o){
   shotState.phase='fly'; const g=geo2D(); let end;
   if(o.result==='goal') end=targetPoint2D(g,o.fx,o.fy);
   else if(o.result==='save') end=targetPoint2D(g,clamp(o.keeperX,-1,1),clamp(o.fy,0.1,0.7));
-  else end=targetPoint2D(g,o.fx,clamp(o.fy,0,1.25));
-  const start={x:g.ballX,y:g.ballY}, dur=620, t0=performance.now(), trail=[];
+  else if(o.result==='blocked'){
+    const pitchTop=g.goalY+g.goalH;
+    end={x:g.goalX+g.goalW*((clamp(o.fx,-1,1)+1)/2), y:pitchTop+(g.ballY-pitchTop)*(1-o.pitchDepth)};
+  } else end=targetPoint2D(g,o.fx,clamp(o.fy,0,1.25));
+  const start={x:g.ballX,y:g.ballY}, dur=600, t0=performance.now(), trail=[];
+  const isHigh=o.fy&&o.fy>0.62;
   function frame(now){
     let u=(now-t0)/dur; if(u>1)u=1; const ue=1-Math.pow(1-u,2);
-    const x=start.x+(end.x-start.x)*ue+Math.sin(ue*Math.PI)*p.curve*g.goalW*0.5;
-    const y=start.y+(end.y-start.y)*ue; const r=geo2D().ballR*(1-0.35*ue);
+    const wd=M&&M.wind?M.wind.dx*(1-p.power*0.55)*0.48:0;
+    const x=start.x+(end.x-start.x)*ue + Math.sin(ue*Math.PI)*(p.curve*g.goalW*0.68 + wd*g.goalW*0.5);
+    const y=start.y+(end.y-start.y)*ue;
+    const r=geo2D().ballR*(1-0.35*ue);
     drawPitch2D();
-    const kx=o.save?o.keeperX:(o.result==='goal'?clamp(o.keeperX,-1,1)*0.7:o.keeperX);
-    drawKeeper2D(geo2D(),kx*Math.min(1,u*1.6));
+    drawBlockers2D(geo2D(),p.aimX,u);
+    drawWindArrows2D();
+    if(o.result!=='blocked'){
+      const kxN=o.result==='save'?o.keeperX:clamp(o.keeperX,-1,1)*0.7;
+      const jump=isHigh?Math.sin(Math.min(u*1.8,Math.PI)):0;
+      drawKeeper2D(geo2D(),kxN*Math.min(1,u*1.4),jump*Math.min(1,u*1.8));
+    }
     trail.push({x,y}); if(trail.length>10)trail.shift();
     ctx.strokeStyle='rgba(255,194,61,.4)'; ctx.lineWidth=r*0.8; ctx.lineCap='round';
-    ctx.beginPath(); trail.forEach((pt,i)=> i?ctx.lineTo(pt.x,pt.y):ctx.moveTo(pt.x,pt.y)); ctx.stroke();
+    ctx.beginPath(); trail.forEach((pt,i)=>i?ctx.lineTo(pt.x,pt.y):ctx.moveTo(pt.x,pt.y)); ctx.stroke();
     drawBall2D(x,y,r); setPowerMeter(0);
     if(u<1) requestAnimationFrame(frame); else applyShotOutcome(o);
   }
@@ -1088,23 +1217,37 @@ function animateShot2D(p,o){
 /* ---- 3D ---- */
 function setup3D(){
   if(!three.renderer) init3D();
-  three.keeper.position.x=0; three.ball.position.set(0,0.22,8.5); three.ball.visible=true;
+  three.keeper.position.set(0,0,three.goalZ+0.3);
+  three.keeper.rotation.set(0,0,0);
+  three.ball.position.set(0,0.22,8.5); three.ball.visible=true;
+  // Position blocker meshes
+  if(three.blockers&&M.blockers){
+    three.blockers.forEach((mesh,i)=>{
+      const b=M.blockers[i];
+      if(b){
+        mesh.position.set(b.x*three.goalW/2*0.92, 0, three.goalZ+b.depth*(8.5-three.goalZ));
+        mesh.rotation.set(0,0,0); mesh.visible=true;
+      } else { mesh.visible=false; }
+    });
+  }
   resetTrail3D(); attachInput($('three'),()=>renderAim3D(),fire3D); onResize3D(); renderAim3D();
 }
 function init3D(){
   const host=$('three');
-  const renderer=new THREE.WebGLRenderer({antialias:true}); renderer.setPixelRatio(Math.min(2,window.devicePixelRatio||1)); host.appendChild(renderer.domElement);
-  const scene=new THREE.Scene(); scene.background=new THREE.Color('#06140d'); scene.fog=new THREE.Fog('#06140d',18,40);
-  const cam=new THREE.PerspectiveCamera(55,1,0.1,100); cam.position.set(0,3.0,12.5); cam.lookAt(0,1.4,-2);
+  const renderer=new THREE.WebGLRenderer({antialias:true,powerPreference:'low-power'});
+  renderer.setPixelRatio(Math.min(2,window.devicePixelRatio||1)); host.appendChild(renderer.domElement);
+  const scene=new THREE.Scene(); scene.background=new THREE.Color('#06140d'); scene.fog=new THREE.Fog('#06140d',20,42);
+  const cam=new THREE.PerspectiveCamera(72,1,0.1,100);
+  cam.position.set(0,2.4,16.5); cam.lookAt(0,1.4,-2);
   scene.add(new THREE.HemisphereLight(0xbfe2ff,0x0a3d20,0.9));
   const dl=new THREE.DirectionalLight(0xffffff,0.9); dl.position.set(4,12,6); scene.add(dl);
   const dl2=new THREE.DirectionalLight(0xffe0a0,0.5); dl2.position.set(-6,8,2); scene.add(dl2);
   const pitch=new THREE.Mesh(new THREE.PlaneGeometry(40,60),new THREE.MeshStandardMaterial({color:0x0d6b34})); pitch.rotation.x=-Math.PI/2; pitch.position.z=-6; scene.add(pitch);
   for(let i=0;i<14;i++){ const m=new THREE.Mesh(new THREE.PlaneGeometry(40,2.2),new THREE.MeshStandardMaterial({color:i%2?0x0a5e2c:0x0e7438})); m.rotation.x=-Math.PI/2; m.position.set(0,0.01,-i*2.2+9); scene.add(m); }
   const lineMat=new THREE.LineBasicMaterial({color:0xffffff,transparent:true,opacity:0.35});
-  function box(w,d,z){ const hw=w/2, pts=[[-hw,0,z+d],[hw,0,z+d],[hw,0,z],[-hw,0,z],[-hw,0,z+d]].map(p=>new THREE.Vector3(p[0],0.02,p[2])); scene.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts),lineMat)); }
+  function box(w,d,z){ const hw=w/2,pts=[[-hw,0,z+d],[hw,0,z+d],[hw,0,z],[-hw,0,z],[-hw,0,z+d]].map(p=>new THREE.Vector3(p[0],0.02,p[2])); scene.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts),lineMat)); }
   box(18,6,-6); box(10,2.6,-6);
-  const goalW=7.32/1.0*0.9, goalH=2.44*0.95, goalZ=-6, postR=0.09;
+  const goalW=7.32*0.9, goalH=2.44*0.95, goalZ=-6, postR=0.09;
   const postMat=new THREE.MeshStandardMaterial({color:0xffffff,emissive:0x333333});
   function post(x){ const p=new THREE.Mesh(new THREE.CylinderGeometry(postR,postR,goalH,12),postMat); p.position.set(x,goalH/2,goalZ); scene.add(p); }
   post(-goalW/2); post(goalW/2);
@@ -1112,32 +1255,71 @@ function init3D(){
   const netMat=new THREE.LineBasicMaterial({color:0xffffff,transparent:true,opacity:0.18}); const netPts=[]; const depth=1.4;
   for(let i=0;i<=10;i++){ const x=-goalW/2+goalW*i/10; netPts.push(new THREE.Vector3(x,0,goalZ),new THREE.Vector3(x,goalH,goalZ)); netPts.push(new THREE.Vector3(x,goalH,goalZ),new THREE.Vector3(x,goalH,goalZ-depth)); }
   for(let j=0;j<=6;j++){ const y=goalH*j/6; netPts.push(new THREE.Vector3(-goalW/2,y,goalZ),new THREE.Vector3(goalW/2,y,goalZ)); }
-  netPts.push(new THREE.Vector3(-goalW/2,goalH,goalZ-depth),new THREE.Vector3(goalW/2,goalH,goalZ-depth)); netPts.push(new THREE.Vector3(-goalW/2,0,goalZ-depth),new THREE.Vector3(goalW/2,0,goalZ-depth));
+  netPts.push(new THREE.Vector3(-goalW/2,goalH,goalZ-depth),new THREE.Vector3(goalW/2,goalH,goalZ-depth),new THREE.Vector3(-goalW/2,0,goalZ-depth),new THREE.Vector3(goalW/2,0,goalZ-depth));
   scene.add(new THREE.LineSegments(new THREE.BufferGeometry().setFromPoints(netPts),netMat));
+  // Keeper with arms
   const keeper=new THREE.Group();
-  const body=new THREE.Mesh(new THREE.BoxGeometry(0.7,1.3,0.35),new THREE.MeshStandardMaterial({color:0xffd23d})); body.position.y=0.95; keeper.add(body);
-  const head=new THREE.Mesh(new THREE.SphereGeometry(0.26,16,16),new THREE.MeshStandardMaterial({color:0xf2c08a})); head.position.y=1.78; keeper.add(head);
+  const kMat=new THREE.MeshStandardMaterial({color:0xffd23d});
+  const kBody=new THREE.Mesh(new THREE.BoxGeometry(0.72,1.3,0.35),kMat); kBody.position.y=0.95; keeper.add(kBody);
+  const kHead=new THREE.Mesh(new THREE.SphereGeometry(0.27,16,16),new THREE.MeshStandardMaterial({color:0xf2c08a})); kHead.position.y=1.82; keeper.add(kHead);
+  const armGeo=new THREE.BoxGeometry(0.6,0.18,0.18);
+  const kArmL=new THREE.Mesh(armGeo,kMat); kArmL.position.set(-0.62,1.3,0); keeper.add(kArmL);
+  const kArmR=new THREE.Mesh(armGeo,kMat); kArmR.position.set(0.62,1.3,0); keeper.add(kArmR);
   keeper.position.set(0,0,goalZ+0.3); scene.add(keeper);
+  // Blocker players (home=green, away=red)
+  const blockerCols=[0x3FE08A,0xFF5470,0x3FE08A];
+  const blockers=blockerCols.map((col,i)=>{
+    const g=new THREE.Group();
+    const bMat=new THREE.MeshStandardMaterial({color:col});
+    const bBody=new THREE.Mesh(new THREE.BoxGeometry(0.56,1.15,0.3),bMat); bBody.position.y=0.72; g.add(bBody);
+    const bHead=new THREE.Mesh(new THREE.SphereGeometry(0.23,12,12),new THREE.MeshStandardMaterial({color:0xf2c08a})); bHead.position.y=1.52; g.add(bHead);
+    const bArmGeo=new THREE.BoxGeometry(0.5,0.15,0.15);
+    const bArmL=new THREE.Mesh(bArmGeo,bMat); bArmL.position.set(-0.5,1.1,0); g.add(bArmL);
+    const bArmR=new THREE.Mesh(bArmGeo,bMat); bArmR.position.set(0.5,1.1,0); g.add(bArmR);
+    g.visible=false; scene.add(g); return g;
+  });
   const ball=new THREE.Mesh(new THREE.SphereGeometry(0.22,24,24),new THREE.MeshStandardMaterial({color:0xffffff,roughness:.5})); ball.position.set(0,0.22,8.5); scene.add(ball);
-  const aimLine=new THREE.Line(new THREE.BufferGeometry().setFromPoints(new Array(24).fill(0).map(()=>new THREE.Vector3())),new THREE.LineBasicMaterial({color:0xffc23d,transparent:true,opacity:0.9})); scene.add(aimLine);
-  const reticle=new THREE.Mesh(new THREE.SphereGeometry(0.13,12,12),new THREE.MeshBasicMaterial({color:0xff4d2e})); reticle.visible=false; scene.add(reticle);
+  const aimLine=new THREE.Line(new THREE.BufferGeometry().setFromPoints(new Array(28).fill(0).map(()=>new THREE.Vector3())),new THREE.LineBasicMaterial({color:0xffc23d,transparent:true,opacity:0.9})); scene.add(aimLine);
+  const reticle=new THREE.Mesh(new THREE.SphereGeometry(0.14,12,12),new THREE.MeshBasicMaterial({color:0xff4d2e})); reticle.visible=false; scene.add(reticle);
   const trail=new THREE.Line(new THREE.BufferGeometry().setFromPoints(new Array(16).fill(0).map(()=>new THREE.Vector3())),new THREE.LineBasicMaterial({color:0xffc23d,transparent:true,opacity:0.5})); scene.add(trail);
-  three={renderer,scene,cam,ball,keeper,aimLine,reticle,trail,goalW,goalH,goalZ};
+  three={renderer,scene,cam,ball,keeper,aimLine,reticle,trail,goalW,goalH,goalZ,blockers};
 }
 function onResize3D(){
   if(!three.renderer) return;
-  const host=$('three'); const w=host.clientWidth||window.innerWidth, h=host.clientHeight||window.innerHeight;
-  three.renderer.setSize(w,h,false); three.cam.aspect=w/h; three.cam.updateProjectionMatrix(); three.renderer.render(three.scene,three.cam);
+  const host=$('three');
+  const w=host.clientWidth||window.innerWidth, h=host.clientHeight||window.innerHeight;
+  three.renderer.setSize(w,h,false);
+  three.cam.aspect=w/h;
+  const asp=w/h;
+  // Responsive camera: pull back and widen FOV for portrait mobile
+  if(asp<0.60){       three.cam.fov=80; three.cam.position.set(0,2.2,17.5); }
+  else if(asp<0.80){  three.cam.fov=72; three.cam.position.set(0,2.5,15.5); }
+  else if(asp<1.00){  three.cam.fov=64; three.cam.position.set(0,2.8,14.0); }
+  else {              three.cam.fov=55; three.cam.position.set(0,3.0,12.5); }
+  three.cam.lookAt(0,1.4,-2);
+  three.cam.updateProjectionMatrix();
+  three.renderer.render(three.scene,three.cam);
 }
 window.addEventListener('resize',()=>{ if(mode==='3d') onResize3D(); });
-function goalPoint3D(fx,fy){ return new THREE.Vector3(fx*three.goalW/2*0.92,0.1+fy*three.goalH*0.95,three.goalZ); }
+function goalPoint3D(fx,fy){ return new THREE.Vector3(fx*three.goalW/2*0.92, 0.12+fy*three.goalH*0.95, three.goalZ); }
 function renderAim3D(){
-  if(!three.renderer) return; const start=three.ball.position.clone();
+  if(!three.renderer) return;
+  const start=three.ball.position.clone();
   if(shotState&&shotState.path&&shotState.path.length>1){
     const p=gestureToParams(shotState.path,{w:window.innerWidth,h:window.innerHeight});
-    const end=goalPoint3D(clamp(p.aimX,-1,1),clamp(p.aimY,0,1)); const pts=[];
-    for(let i=0;i<=23;i++){ const u=i/23; pts.push(new THREE.Vector3(start.x+(end.x-start.x)*u+Math.sin(u*Math.PI)*p.curve*2.2, start.y+(end.y-start.y)*u+Math.sin(u*Math.PI)*0.7*p.power, start.z+(end.z-start.z)*u)); }
-    three.aimLine.geometry.setFromPoints(pts); three.aimLine.visible=true; three.reticle.position.copy(end); three.reticle.visible=true; setPowerMeter(p.power);
+    const end=goalPoint3D(clamp(p.aimX,-1,1),clamp(p.aimY,0,1));
+    const wd=M&&M.wind?M.wind.dx*(1-p.power*0.55)*0.48:0;
+    const pts=[];
+    for(let i=0;i<=27;i++){
+      const u=i/27;
+      pts.push(new THREE.Vector3(
+        start.x+(end.x-start.x)*u + Math.sin(u*Math.PI)*p.curve*2.4 + wd*(end.z-start.z)*u*u*0.6,
+        start.y+(end.y-start.y)*u + Math.sin(u*Math.PI)*0.7*p.power,
+        start.z+(end.z-start.z)*u
+      ));
+    }
+    three.aimLine.geometry.setFromPoints(pts); three.aimLine.visible=true;
+    three.reticle.position.copy(end); three.reticle.visible=true; setPowerMeter(p.power);
   } else { three.aimLine.visible=false; three.reticle.visible=false; setPowerMeter(0); }
   three.renderer.render(three.scene,three.cam);
 }
@@ -1146,24 +1328,76 @@ function resetTrail3D(){
 }
 function fire3D(){
   if(!shotState.path||shotState.path.length<2||dragLen(shotState.path)<24){ shotState.path=[]; renderAim3D(); return; }
-  const p=gestureToParams(shotState.path,{w:window.innerWidth,h:window.innerHeight}); const o=resolveShot(p); animateShot3D(p,o);
+  const p=gestureToParams(shotState.path,{w:window.innerWidth,h:window.innerHeight});
+  const o=resolveShot(p); animateShot3D(p,o);
 }
 function animateShot3D(p,o){
   shotState.phase='fly'; three.aimLine.visible=false; three.reticle.visible=false;
   const start=three.ball.position.clone(); let end;
   if(o.result==='goal') end=goalPoint3D(o.fx,o.fy);
-  else if(o.result==='save') end=goalPoint3D(clamp(o.keeperX,-1,1),clamp(o.fy,0.15,0.7));
-  else end=goalPoint3D(o.fx*1.05,clamp(o.fy,0,1.2));
-  const dur=720, t0=performance.now(), trailPts=[], kStart=three.keeper.position.x, kEnd=(o.save?o.keeperX:clamp(o.keeperX,-1,1)*0.7)*three.goalW/2*0.7;
+  else if(o.result==='save') end=goalPoint3D(clamp(o.keeperX,-1,1),clamp(o.fy,0.15,0.72));
+  else if(o.result==='blocked'){
+    const bz=three.goalZ+o.pitchDepth*(8.5-three.goalZ);
+    end=new THREE.Vector3(o.fx*three.goalW/2*0.9, 0.6, bz);
+  } else end=goalPoint3D(o.fx*1.05,clamp(o.fy,0,1.2));
+
+  const dur=700, t0=performance.now(), trailPts=[];
+  const kStartX=three.keeper.position.x;
+  // Keeper target: dive toward shot, further for save
+  const kEndX=(o.result==='blocked'?0:(o.result==='save'?o.keeperX:clamp(o.keeperX,-1,1)*0.7))*three.goalW/2*0.78;
+  const isHigh=o.fy&&o.fy>0.60;
+  const wd=M&&M.wind?M.wind.dx*(1-p.power*0.55)*0.48:0;
+  // Capture blocker start positions
+  const bStarts=three.blockers?three.blockers.map(m=>({x:m.position.x,z:m.position.z})):[];
+
   function frame(now){
     let u=(now-t0)/dur; if(u>1)u=1; const ue=1-Math.pow(1-u,2);
-    const x=start.x+(end.x-start.x)*ue+Math.sin(ue*Math.PI)*p.curve*2.2, y=start.y+(end.y-start.y)*ue+Math.sin(ue*Math.PI)*0.8*p.power, z=start.z+(end.z-start.z)*ue;
+    const x=start.x+(end.x-start.x)*ue + Math.sin(ue*Math.PI)*(p.curve*2.4 + wd*0.6);
+    const y=start.y+(end.y-start.y)*ue + Math.sin(ue*Math.PI)*0.85*p.power;
+    const z=start.z+(end.z-start.z)*ue;
     three.ball.position.set(x,y,z);
-    three.keeper.position.x=kStart+(kEnd-kStart)*Math.min(1,u*1.4); three.keeper.rotation.z=-(kEnd)*0.5*Math.min(1,u*1.4);
+
+    // Keeper: lateral dive + arm raise + jump for high shots
+    const kProg=Math.min(1,u*1.45);
+    three.keeper.position.x=kStartX+(kEndX-kStartX)*kProg;
+    // Lean body into dive direction
+    const leanDir=kEndX>0?-1:1;
+    three.keeper.rotation.z=leanDir*Math.min(0.75,Math.abs(kEndX)*0.05)*kProg;
+    // Jump for high shots
+    three.keeper.position.y=isHigh?Math.sin(Math.min(u*1.9,Math.PI))*1.35:0;
+    // Extend arm toward ball
+    const armSide=kEndX>0?1:-1;
+    const arm=armSide>0?three.keeper.children[3]:three.keeper.children[2]; // armR or armL
+    if(arm) arm.rotation.z=armSide*Math.min(0.9,kProg*1.2);
+
+    // Animate blockers running toward shot trajectory
+    if(three.blockers&&M.blockers){
+      three.blockers.forEach((mesh,i)=>{
+        const b=M.blockers[i]; if(!b||!mesh.visible) return;
+        const bs=bStarts[i]; if(!bs) return;
+        const tProg=Math.min(1,u*b.speed*1.7);
+        mesh.position.x=bs.x+(end.x-bs.x)*tProg;
+        mesh.rotation.z=(end.x-bs.x>0?-1:1)*0.35*tProg; // running lean
+        // Arms out when about to block
+        if(o.result==='blocked'&&i===0&&tProg>0.7){
+          const af=mesh.children[2];
+          const ar=mesh.children[3];
+          if(af) af.rotation.z=-0.8*(tProg-0.7)/0.3;
+          if(ar) ar.rotation.z=0.8*(tProg-0.7)/0.3;
+        }
+      });
+    }
+
     trailPts.push(new THREE.Vector3(x,y,z)); if(trailPts.length>16)trailPts.shift();
     const tp=trailPts.slice(); while(tp.length<16) tp.unshift(tp[0]||new THREE.Vector3(x,y,z));
-    three.trail.geometry.setFromPoints(tp); setPowerMeter(0); three.renderer.render(three.scene,three.cam);
-    if(u<1) requestAnimationFrame(frame); else { three.keeper.rotation.z=0; applyShotOutcome(o); }
+    three.trail.geometry.setFromPoints(tp); setPowerMeter(0);
+    three.renderer.render(three.scene,three.cam);
+    if(u<1){ requestAnimationFrame(frame); }
+    else {
+      three.keeper.rotation.set(0,0,0); three.keeper.position.y=0;
+      three.keeper.children.forEach(c=>{ if(c.rotation) c.rotation.z=0; });
+      applyShotOutcome(o);
+    }
   }
   requestAnimationFrame(frame);
 }
